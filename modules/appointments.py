@@ -89,14 +89,29 @@ def _limpiar(datos):
     }
 
 
+def usa_camara(bd, id_servicio):
+    """True si el servicio se da dentro de la cámara hiperbárica."""
+    servicio = bd.obtener_servicio(_a_entero(id_servicio))
+    return bool(servicio and servicio["usa_camara"])
+
+
+def cupo_si_camara(bd, en_camara):
+    """Cupo de cámaras para guardar con revisión atómica; None si es consulta."""
+    return bd.cupo_camaras() if en_camara else None
+
+
 def validar_datos_de_cita(bd, datos, requiere_paciente, hoy=None,
-                          excluir_id_cita=None):
+                          excluir_id_cita=None, servicio_actual=None):
     """Aplica en orden todas las validaciones de una cita.
 
     1. Campos obligatorios (M6: CA-45, CA-46).
     2. Formato y vigencia de fecha y hora (M3).
     3. Que existan el especialista, el servicio y, si aplica, el paciente.
-    4. Horario ocupado del especialista (M3 → M6: CA-47, RF-02).
+    4. Horario ocupado (M3 → M6: CA-47): por especialista si es consulta, por
+       cupo de cámara si es una sesión en cámara.
+
+    `servicio_actual` (al modificar) permite conservar un servicio que se
+    desactivó después de agendar la cita.
 
     Devuelve "" si todo es válido o el primer mensaje de error.
     Puede lanzar ErrorBaseDatos.
@@ -112,7 +127,8 @@ def validar_datos_de_cita(bd, datos, requiere_paciente, hoy=None,
     if obtener_especialista_activo(bd, datos["especialista"]) is None:
         return MENSAJE_ESPECIALISTA_INEXISTENTE
     id_servicio = _a_entero(datos["servicio"])
-    if id_servicio is None or bd.obtener_servicio(id_servicio) is None:
+    servicio = bd.obtener_servicio(id_servicio) if id_servicio is not None else None
+    if servicio is None or (not servicio["activo"] and id_servicio != servicio_actual):
         return MENSAJE_SERVICIO_INEXISTENTE
     if requiere_paciente:
         id_paciente = _a_entero(datos["paciente"])
@@ -120,7 +136,8 @@ def validar_datos_de_cita(bd, datos, requiere_paciente, hoy=None,
             return MENSAJE_PACIENTE_INEXISTENTE
 
     ocupado = horario_ocupado(bd, datos["especialista"], datos["fecha"],
-                              datos["hora"], excluir_id_cita)
+                              datos["hora"], excluir_id_cita,
+                              en_camara=bool(servicio["usa_camara"]))
     return validar_cita(datos, ocupado, requiere_paciente)["mensaje"]
 
 
@@ -149,14 +166,17 @@ def registrar_cita(bd, sesion, datos, hoy=None):
         error = validar_datos_de_cita(bd, datos, requiere_paciente, hoy)
         if error:
             return _resultado(False, error, id_cita=None)
+        en_camara = usa_camara(bd, datos["servicio"])
         id_cita = bd.insertar_cita(
             datos["fecha"], datos["hora"], _a_entero(datos["paciente"]),
             _a_entero(datos["especialista"]), _a_entero(datos["servicio"]),
             None if esta_vacio(datos.get("motivo")) else datos["motivo"],
+            en_camara=en_camara, cupo=cupo_si_camara(bd, en_camara),
         )
         cita = bd.obtener_cita(id_cita)
     except ErrorIntegridad:
-        # Otro usuario tomó el horario entre la validación y el guardado.
+        # Otro usuario tomó el horario (o el último lugar de la cámara) entre
+        # la validación y el guardado.
         return _resultado(False, MENSAJE_HORARIO_OCUPADO, id_cita=None)
     except ErrorBaseDatos as error_bd:
         return _resultado(False, error_bd.mensaje, id_cita=None)
@@ -216,17 +236,20 @@ def modificar_cita(bd, sesion, id_cita, cambios, hoy=None):
                       if campo in CAMPOS_MODIFICABLES})
 
         error = validar_datos_de_cita(bd, datos, requiere_paciente=False, hoy=hoy,
-                                      excluir_id_cita=cita["id_cita"])
+                                      excluir_id_cita=cita["id_cita"],
+                                      servicio_actual=cita["id_servicio"])
         if error:
             return _resultado(False, error, id_cita=cita["id_cita"])
 
         nueva = (datos["fecha"], datos["hora"], _a_entero(datos["especialista"]))
         anterior = (cita["fecha"], cita["hora"], cita["id_odontologo"])
         estatus = ESTATUS_REPROGRAMADA if nueva != anterior else cita["estatus"]
+        en_camara = usa_camara(bd, datos["servicio"])
         bd.actualizar_cita(
             cita["id_cita"], datos["fecha"], datos["hora"],
             _a_entero(datos["especialista"]), _a_entero(datos["servicio"]),
             None if esta_vacio(datos.get("motivo")) else datos["motivo"], estatus,
+            en_camara=en_camara, cupo=cupo_si_camara(bd, en_camara),
         )
         actualizada = bd.obtener_cita(cita["id_cita"])
     except ErrorIntegridad:

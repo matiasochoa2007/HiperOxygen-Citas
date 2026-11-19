@@ -12,11 +12,17 @@ ODONTOLOGOS_DEMO = (  # especialistas de demostración (nombres ficticios)
 )
 
 SERVICIOS_DEMO = (
+    # (nombre, minutos, descripción, precio, ¿usa la cámara?)
     # Precios en None: se muestran como "A consultar" hasta que la clínica los defina.
-    ("Valoración médica inicial", 30, "Historia clínica y plan de sesiones personalizado", None),
-    ("Sesión de oxigenoterapia hiperbárica", 60, "Oxígeno al 100 % en cámara presurizada, de 50 a 60 minutos", None),
-    ("Sesión de recuperación deportiva", 60, "Oxigenoterapia enfocada en lesiones y recuperación muscular", None),
-    ("Revisión de avance", 30, "Seguimiento médico de la evolución del tratamiento", None),
+    ("Valoración médica inicial", 30, "Historia clínica y plan de sesiones personalizado", None, False),
+    ("Sesión de oxigenoterapia hiperbárica", 60, "Oxígeno al 100 % en cámara presurizada, de 50 a 60 minutos", None, True),
+    ("Sesión de recuperación deportiva", 60, "Oxigenoterapia enfocada en lesiones y recuperación muscular", None, True),
+    ("Revisión de avance", 30, "Seguimiento médico de la evolución del tratamiento", None, False),
+)
+
+# (nombre, lugares por sesión). Ajustable en Configuración.
+CAMARAS_DEMO = (
+    ("Cámara hiperbárica", 1),
 )
 
 PACIENTES_DEMO = (
@@ -43,8 +49,10 @@ def sembrar_datos_demo(bd):
         return False
 
     ids_odontologo = [bd.insertar_odontologo(*o) for o in ODONTOLOGOS_DEMO]
-    for nombre, duracion, descripcion, precio in SERVICIOS_DEMO:
-        bd.insertar_servicio(nombre, duracion, descripcion, precio)
+    for nombre, duracion, descripcion, precio, camara in SERVICIOS_DEMO:
+        bd.insertar_servicio(nombre, duracion, descripcion, precio, usa_camara=camara)
+    for nombre, capacidad in CAMARAS_DEMO:
+        bd.insertar_camara(nombre, capacidad)
     ids_paciente = [
         bd.insertar_paciente(nombre, apellidos, telefono, correo)
         for nombre, apellidos, telefono, correo in PACIENTES_DEMO
