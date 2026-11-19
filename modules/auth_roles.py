@@ -40,6 +40,8 @@ PERMISOS = {
     # Extensión v1.1 (RF-12 propuesto): pacientes nuevos y accesos.
     "registrar_paciente": {ROL_RECEPCIONISTA},
     "gestionar_accesos": {ROL_RECEPCIONISTA},
+    # HiperOxygen: cámaras, especialistas y servicios desde la app.
+    "configurar_clinica": {ROL_RECEPCIONISTA},
 }
 
 MENSAJE_CREDENCIALES_VACIAS = (

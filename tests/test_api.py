@@ -128,5 +128,24 @@ class PruebasEspecialistaApi(EscenarioApi):
         self.assertEqual(self.api.resumen()["indicadores"]["manana"], 1)
 
 
+
+class PruebasConfiguracionApi(EscenarioApi):
+    def test_recepcion_configura_y_el_paciente_ve_los_cambios(self):
+        self.entrar("recepcion01")
+        config = self.api.configuracion()
+        self.assertEqual((config["cupo"], len(config["camaras"])), (1, 1))
+        self.assertTrue(self.api.guardar_camara({"nombre": "Cámara 1", "capacidad": 2},
+                                                config["camaras"][0]["id_camara"])["exito"])
+        nuevo = self.api.guardar_servicio({"nombre": "Sesión express", "duracion": 45,
+                                           "precio": "900", "usa_camara": True})
+        self.assertTrue(nuevo["exito"], nuevo["mensaje"])
+        self.entrar("paciente01")
+        disp = self.api.disponibilidad(1, MANANA, None, nuevo["id"])
+        self.assertTrue(disp["en_camara"])
+        self.assertEqual(disp["lugares"]["10:00"], 2)
+        self.assertIn("Sesión express", [s["nombre"] for s in self.api.servicios()["servicios"]])
+        self.assertFalse(self.api.configuracion()["exito"])
+
+
 if __name__ == "__main__":
     unittest.main()

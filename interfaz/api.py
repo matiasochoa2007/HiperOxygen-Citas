@@ -10,7 +10,7 @@ import functools
 import traceback
 from datetime import date, timedelta
 
-from modules import agenda, appointments, availability, patients
+from modules import agenda, appointments, availability, configuracion, patients
 from modules.auth_roles import (
     ROL_ESPECIALISTA,
     ROL_PACIENTE,
@@ -145,9 +145,10 @@ class ApiHiperOxygen:
     # -- Citas -------------------------------------------------------------------
 
     @_seguro
-    def disponibilidad(self, id_especialista, fecha, excluir_id_cita=None):
+    def disponibilidad(self, id_especialista, fecha, excluir_id_cita=None, id_servicio=None):
         return availability.consultar_disponibilidad(
-            self._bd, self._sesion, id_especialista, fecha, self._hoy, excluir_id_cita)
+            self._bd, self._sesion, id_especialista, fecha, self._hoy, excluir_id_cita,
+            id_servicio)
 
     @_seguro
     def registrar_cita(self, datos):
@@ -187,6 +188,45 @@ class ApiHiperOxygen:
     @_seguro
     def gestionar_acceso(self, id_paciente, usuario, contrasena):
         return patients.gestionar_acceso(self._bd, self._sesion, id_paciente, usuario, contrasena)
+
+    # -- Configuración de la clínica (recepción) -------------------------------------
+
+    @_seguro
+    def configuracion(self):
+        resultado = configuracion.consultar_configuracion(self._bd, self._sesion)
+        for e in resultado.get("especialistas", []):
+            e["iniciales"] = _iniciales(f"{e['nombre']} {e['apellidos']}")
+        return resultado
+
+    @_seguro
+    def guardar_camara(self, datos, id_camara=None):
+        return configuracion.guardar_camara(self._bd, self._sesion, datos, id_camara)
+
+    @_seguro
+    def estado_camara(self, id_camara, activa):
+        return configuracion.cambiar_estado_camara(self._bd, self._sesion, id_camara, activa)
+
+    @_seguro
+    def guardar_especialista(self, datos, id_especialista=None):
+        return configuracion.guardar_especialista(self._bd, self._sesion, datos, id_especialista)
+
+    @_seguro
+    def estado_especialista(self, id_especialista, activo):
+        return configuracion.cambiar_estado_especialista(
+            self._bd, self._sesion, id_especialista, activo, self._hoy)
+
+    @_seguro
+    def acceso_especialista(self, id_especialista, usuario, contrasena):
+        return configuracion.gestionar_acceso_especialista(
+            self._bd, self._sesion, id_especialista, usuario, contrasena)
+
+    @_seguro
+    def guardar_servicio(self, datos, id_servicio=None):
+        return configuracion.guardar_servicio(self._bd, self._sesion, datos, id_servicio)
+
+    @_seguro
+    def estado_servicio(self, id_servicio, activo):
+        return configuracion.cambiar_estado_servicio(self._bd, self._sesion, id_servicio, activo)
 
     # -- Inicio ----------------------------------------------------------------------
 
