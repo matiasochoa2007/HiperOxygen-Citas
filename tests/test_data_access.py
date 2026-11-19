@@ -17,12 +17,12 @@ class PruebasEsquema(unittest.TestCase):
     def tearDown(self):
         self.temp.limpiar()
 
-    def test_crea_las_cinco_tablas(self):
+    def test_crea_todas_las_tablas(self):
         self.assertEqual(sorted(self.temp.bd.tablas()), sorted(TABLAS))
 
     def test_inicializar_dos_veces_no_falla(self):
         self.temp.bd.inicializar()
-        self.assertEqual(len(self.temp.bd.tablas()), 5)
+        self.assertEqual(len(self.temp.bd.tablas()), len(TABLAS))
 
     def test_llaves_foraneas_activas(self):
         fila = self.temp.bd._consultar_uno("PRAGMA foreign_keys")

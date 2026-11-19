@@ -19,7 +19,7 @@ MENSAJE_BASE_NO_DISPONIBLE = (
     "Intente de nuevo más tarde o avise a la recepción."
 )
 
-TABLAS = ("paciente", "odontologo", "servicio", "usuario", "cita")
+TABLAS = ("paciente", "odontologo", "servicio", "usuario", "cita", "camara")
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS paciente (
@@ -44,7 +44,16 @@ CREATE TABLE IF NOT EXISTS servicio (
     nombre       TEXT NOT NULL UNIQUE,
     descripcion  TEXT,
     duracion_min INTEGER NOT NULL CHECK (duracion_min > 0),
-    precio       REAL CHECK (precio IS NULL OR precio >= 0)
+    precio       REAL CHECK (precio IS NULL OR precio >= 0),
+    usa_camara   INTEGER NOT NULL DEFAULT 0 CHECK (usa_camara IN (0, 1)),
+    activo       INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1))
+);
+
+CREATE TABLE IF NOT EXISTS camara (
+    id_camara  INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre     TEXT NOT NULL UNIQUE,
+    capacidad  INTEGER NOT NULL CHECK (capacidad BETWEEN 1 AND 20),
+    activa     INTEGER NOT NULL DEFAULT 1 CHECK (activa IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS usuario (
@@ -67,14 +76,31 @@ CREATE TABLE IF NOT EXISTS cita (
                          ('Programada', 'Reprogramada', 'Cancelada', 'Atendida')),
     id_paciente   INTEGER NOT NULL REFERENCES paciente (id_paciente),
     id_odontologo INTEGER NOT NULL REFERENCES odontologo (id_odontologo),
-    id_servicio   INTEGER NOT NULL REFERENCES servicio (id_servicio)
+    id_servicio   INTEGER NOT NULL REFERENCES servicio (id_servicio),
+    en_camara     INTEGER NOT NULL DEFAULT 0 CHECK (en_camara IN (0, 1))
 );
+"""
 
--- RF-02: un especialista no puede tener dos citas activas a la misma hora de
--- inicio. Las citas canceladas no ocupan el horario.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_cita_odontologo_horario
+# Columnas agregadas después de la primera versión: se añaden a bases ya creadas.
+COLUMNAS_NUEVAS = (
+    ("servicio", "usa_camara", "INTEGER NOT NULL DEFAULT 0"),
+    ("servicio", "activo", "INTEGER NOT NULL DEFAULT 1"),
+    ("cita", "en_camara", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+INDICES = """
+-- Versión de Orthoimagen: un especialista, una cita por horario. Se reemplaza.
+DROP INDEX IF EXISTS ux_cita_odontologo_horario;
+
+-- Consultas (sin cámara): un especialista no puede tener dos consultas activas
+-- a la misma hora de inicio. Las sesiones en cámara se controlan por cupo.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_consulta_especialista_horario
     ON cita (id_odontologo, fecha, hora)
-    WHERE estatus <> 'Cancelada';
+    WHERE estatus <> 'Cancelada' AND en_camara = 0;
+
+CREATE INDEX IF NOT EXISTS ix_cita_camara_horario
+    ON cita (fecha, hora)
+    WHERE estatus <> 'Cancelada' AND en_camara = 1;
 """
 
 ESTATUS_PROGRAMADA = "Programada"
@@ -94,6 +120,10 @@ class ErrorBaseDatos(Exception):
 
 class ErrorIntegridad(ErrorBaseDatos):
     """Se violó una regla de la base (dato duplicado o referencia inválida)."""
+
+
+class ErrorCupoLleno(ErrorIntegridad):
+    """La cámara ya no tiene lugares en ese horario."""
 
 
 class BaseDatos:
@@ -141,9 +171,18 @@ class BaseDatos:
         self.cerrar()
 
     def inicializar(self):
-        """Crea las tablas si no existen (no borra datos existentes)."""
+        """Crea las tablas si no existen y actualiza bases anteriores
+        (agrega columnas nuevas e índices). Nunca borra datos."""
         try:
-            self.conectar().executescript(ESQUEMA)
+            conexion = self.conectar()
+            with self.candado:
+                conexion.executescript(ESQUEMA)
+                for tabla, columna, definicion in COLUMNAS_NUEVAS:
+                    existentes = {f["name"] for f in conexion.execute(f"PRAGMA table_info({tabla})")}
+                    if columna not in existentes:
+                        conexion.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}")
+                conexion.commit()
+                conexion.executescript(INDICES)
         except sqlite3.Error as error:
             raise ErrorBaseDatos(str(error)) from error
 
@@ -263,24 +302,109 @@ class BaseDatos:
             sql += " WHERE activo = 1"
         return self._consultar(sql + " ORDER BY apellidos, nombre")
 
+    def listar_odontologos_con_acceso(self):
+        """Especialistas (activos e inactivos) con su usuario, si lo tienen."""
+        return self._consultar(
+            "SELECT o.*, u.id_usuario, u.nombre_usuario FROM odontologo o "
+            "LEFT JOIN usuario u ON u.id_odontologo = o.id_odontologo "
+            "ORDER BY o.activo DESC, o.apellidos, o.nombre"
+        )
+
+    def actualizar_odontologo(self, id_odontologo, nombre, apellidos, especialidad):
+        return self._ejecutar(
+            "UPDATE odontologo SET nombre = ?, apellidos = ?, especialidad = ? "
+            "WHERE id_odontologo = ?", (nombre, apellidos, especialidad, id_odontologo),
+        ).rowcount
+
+    def cambiar_estado_odontologo(self, id_odontologo, activo):
+        return self._ejecutar(
+            "UPDATE odontologo SET activo = ? WHERE id_odontologo = ?",
+            (1 if activo else 0, id_odontologo),
+        ).rowcount
+
+    def obtener_usuario_de_odontologo(self, id_odontologo):
+        return self._consultar_uno(
+            "SELECT * FROM usuario WHERE id_odontologo = ?", (id_odontologo,)
+        )
+
+    # -- Cámaras hiperbáricas ----------------------------------------------------
+
+    def insertar_camara(self, nombre, capacidad, activa=True):
+        return self._ejecutar(
+            "INSERT INTO camara (nombre, capacidad, activa) VALUES (?, ?, ?)",
+            (nombre, capacidad, 1 if activa else 0),
+        ).lastrowid
+
+    def obtener_camara(self, id_camara):
+        return self._consultar_uno("SELECT * FROM camara WHERE id_camara = ?", (id_camara,))
+
+    def listar_camaras(self, solo_activas=False):
+        sql = "SELECT * FROM camara"
+        if solo_activas:
+            sql += " WHERE activa = 1"
+        return self._consultar(sql + " ORDER BY activa DESC, nombre")
+
+    def actualizar_camara(self, id_camara, nombre, capacidad):
+        return self._ejecutar(
+            "UPDATE camara SET nombre = ?, capacidad = ? WHERE id_camara = ?",
+            (nombre, capacidad, id_camara),
+        ).rowcount
+
+    def cambiar_estado_camara(self, id_camara, activa):
+        return self._ejecutar(
+            "UPDATE camara SET activa = ? WHERE id_camara = ?", (1 if activa else 0, id_camara)
+        ).rowcount
+
+    def cupo_camaras(self):
+        """Lugares por horario: suma de la capacidad de las cámaras activas."""
+        return self._consultar_uno(
+            "SELECT COALESCE(SUM(capacidad), 0) AS cupo FROM camara WHERE activa = 1"
+        )["cupo"]
+
+    def sesiones_en_camara(self, fecha, excluir_id_cita=None):
+        """Sesiones activas en cámara de un día: {hora: cantidad}."""
+        filas = self._consultar(
+            "SELECT hora, COUNT(*) AS n FROM cita WHERE fecha = ? AND en_camara = 1 "
+            "AND estatus <> ? AND id_cita IS NOT ? GROUP BY hora",
+            (fecha, ESTATUS_CANCELADA, excluir_id_cita),
+        )
+        return {fila["hora"]: fila["n"] for fila in filas}
+
     # -- Servicios (catálogo, RF-08) -----------------------------------------
 
     def insertar_servicio(self, nombre, duracion_min, descripcion=None,
-                          precio=None):
+                          precio=None, usa_camara=False):
         cursor = self._ejecutar(
-            "INSERT INTO servicio (nombre, descripcion, duracion_min, precio) "
-            "VALUES (?, ?, ?, ?)",
-            (nombre, descripcion, duracion_min, precio),
+            "INSERT INTO servicio (nombre, descripcion, duracion_min, precio, usa_camara) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (nombre, descripcion, duracion_min, precio, 1 if usa_camara else 0),
         )
         return cursor.lastrowid
+
+    def actualizar_servicio(self, id_servicio, nombre, duracion_min, descripcion,
+                            precio, usa_camara):
+        return self._ejecutar(
+            "UPDATE servicio SET nombre = ?, duracion_min = ?, descripcion = ?, "
+            "precio = ?, usa_camara = ? WHERE id_servicio = ?",
+            (nombre, duracion_min, descripcion, precio, 1 if usa_camara else 0, id_servicio),
+        ).rowcount
+
+    def cambiar_estado_servicio(self, id_servicio, activo):
+        return self._ejecutar(
+            "UPDATE servicio SET activo = ? WHERE id_servicio = ?",
+            (1 if activo else 0, id_servicio),
+        ).rowcount
 
     def obtener_servicio(self, id_servicio):
         return self._consultar_uno(
             "SELECT * FROM servicio WHERE id_servicio = ?", (id_servicio,)
         )
 
-    def listar_servicios(self):
-        return self._consultar("SELECT * FROM servicio ORDER BY nombre")
+    def listar_servicios(self, solo_activos=True):
+        sql = "SELECT * FROM servicio"
+        if solo_activos:
+            sql += " WHERE activo = 1"
+        return self._consultar(sql + " ORDER BY nombre")
 
     # -- Usuarios (RF-11) ------------------------------------------------------
 
@@ -315,15 +439,50 @@ class BaseDatos:
 
     # -- Citas (RF-01, RF-02) --------------------------------------------------
 
+    def _escribir_con_cupo(self, fecha, hora, en_camara, cupo, excluir_id_cita,
+                           sql, parametros):
+        """Revisa el cupo de la cámara y escribe en UNA transacción exclusiva,
+        para que dos personas no ocupen el último lugar al mismo tiempo."""
+        conexion = self.conectar()
+        with self.candado:
+            try:
+                conexion.execute("BEGIN IMMEDIATE")
+                if en_camara and cupo is not None:
+                    ocupados = conexion.execute(
+                        "SELECT COUNT(*) FROM cita WHERE fecha = ? AND hora = ? "
+                        "AND en_camara = 1 AND estatus <> ? AND id_cita IS NOT ?",
+                        (fecha, hora, ESTATUS_CANCELADA, excluir_id_cita),
+                    ).fetchone()[0]
+                    if ocupados >= cupo:
+                        raise ErrorCupoLleno("cupo de cámara lleno")
+                cursor = conexion.execute(sql, parametros)
+                conexion.commit()
+                return cursor
+            except ErrorCupoLleno:
+                conexion.rollback()
+                raise
+            except sqlite3.IntegrityError as error:
+                conexion.rollback()
+                raise ErrorIntegridad(str(error)) from error
+            except sqlite3.Error as error:
+                conexion.rollback()
+                raise ErrorBaseDatos(str(error)) from error
+
     def insertar_cita(self, fecha, hora, id_paciente, id_odontologo,
-                      id_servicio, motivo=None, estatus=ESTATUS_PROGRAMADA):
-        """Guarda una cita. Lanza ErrorIntegridad si el especialista ya tiene una
-        cita activa a esa hora (índice único de RF-02)."""
-        cursor = self._ejecutar(
+                      id_servicio, motivo=None, estatus=ESTATUS_PROGRAMADA,
+                      en_camara=False, cupo=None):
+        """Guarda una cita.
+
+        - Consulta (en_camara False): ErrorIntegridad si el especialista ya
+          tiene otra consulta activa a esa hora (índice único).
+        - Sesión en cámara: ErrorCupoLleno si ya no hay lugar (`cupo`).
+        """
+        cursor = self._escribir_con_cupo(
+            fecha, hora, en_camara, cupo, None,
             "INSERT INTO cita (fecha, hora, motivo, estatus, id_paciente, "
-            "id_odontologo, id_servicio) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "id_odontologo, id_servicio, en_camara) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (fecha, hora, motivo, estatus, id_paciente, id_odontologo,
-             id_servicio),
+             id_servicio, 1 if en_camara else 0),
         )
         return cursor.lastrowid
 
@@ -334,25 +493,28 @@ class BaseDatos:
         )
 
     def horas_ocupadas(self, id_odontologo, fecha, excluir_id_cita=None):
-        """Horas de inicio con cita activa (no cancelada) del especialista ese día.
+        """Horas de inicio con CONSULTA activa (no cancelada) del especialista ese
+        día. Las sesiones en cámara no cuentan aquí: se controlan por cupo.
 
         `excluir_id_cita` permite ignorar una cita, por ejemplo la que se está
         modificando, para que no choque consigo misma.
         """
         filas = self._consultar(
             "SELECT hora FROM cita WHERE id_odontologo = ? AND fecha = ? "
-            "AND estatus <> ? AND id_cita IS NOT ? ORDER BY hora",
+            "AND estatus <> ? AND en_camara = 0 AND id_cita IS NOT ? ORDER BY hora",
             (id_odontologo, fecha, ESTATUS_CANCELADA, excluir_id_cita),
         )
         return [fila["hora"] for fila in filas]
 
     def actualizar_cita(self, id_cita, fecha, hora, id_odontologo, id_servicio,
-                        motivo, estatus):
-        """Reemplaza los datos de una cita. Devuelve las filas afectadas."""
-        cursor = self._ejecutar(
+                        motivo, estatus, en_camara=False, cupo=None):
+        """Reemplaza los datos de una cita (revisando el cupo si va en cámara)."""
+        cursor = self._escribir_con_cupo(
+            fecha, hora, en_camara, cupo, id_cita,
             "UPDATE cita SET fecha = ?, hora = ?, id_odontologo = ?, "
-            "id_servicio = ?, motivo = ?, estatus = ? WHERE id_cita = ?",
-            (fecha, hora, id_odontologo, id_servicio, motivo, estatus, id_cita),
+            "id_servicio = ?, motivo = ?, estatus = ?, en_camara = ? WHERE id_cita = ?",
+            (fecha, hora, id_odontologo, id_servicio, motivo, estatus,
+             1 if en_camara else 0, id_cita),
         )
         return cursor.rowcount
 
@@ -393,7 +555,7 @@ class BaseDatos:
 
 _SELECT_CITA_DETALLE = """
 SELECT c.id_cita, c.fecha, c.hora, c.motivo, c.estatus,
-       c.id_paciente, c.id_odontologo, c.id_servicio,
+       c.id_paciente, c.id_odontologo, c.id_servicio, c.en_camara,
        p.nombre || ' ' || p.apellidos AS paciente,
        o.nombre || ' ' || o.apellidos AS especialista,
        s.nombre AS servicio
