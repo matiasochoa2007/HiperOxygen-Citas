@@ -237,7 +237,7 @@ function renderFormularioAcceso(modo) {
       ${E.demo.length ? `<div class="separador">Accesos de demostración</div>
       <div class="demo">${E.demo.filter((d) => ['paciente01', 'recepcion01', 'especialista01'].includes(d.usuario)).map((d) => `
         <button type="button" data-demo="${esc(d.usuario)}">
-          <span class="avatar avatar--chico ${d.rol === 'recepcionista' ? 'avatar--oro' : d.rol === 'especialista' ? 'avatar--tinta' : ''}">${d.rol === 'paciente' ? 'P' : d.rol === 'especialista' ? 'D' : 'R'}</span>
+          <span class="avatar avatar--chico ${d.rol === 'recepcionista' ? 'avatar--oro' : d.rol === 'especialista' ? 'avatar--tinta' : ''}">${d.rol === 'paciente' ? 'P' : d.rol === 'especialista' ? 'E' : 'R'}</span>
           <strong>${{ paciente: 'Paciente', recepcionista: 'Recepción', especialista: 'Especialista' }[d.rol]}</strong>${esc(d.usuario)}
         </button>`).join('')}</div>` : ''}`;
     $('#usuario').focus();
