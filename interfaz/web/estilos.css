@@ -626,3 +626,7 @@ body { background: linear-gradient(180deg, #ffffff 0%, #f2f8fb 100%); }
 .destacada__etiqueta { color: #b8f0d4; }
 .servicio__precio--consulta { font-family: var(--fuente); font-size: 15px; font-weight: 600; color: var(--tenue); letter-spacing: 0; }
 .resumen__total strong { font-size: 18px; }
+.horario { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.horario small { font-size: 10.5px; font-weight: 600; color: var(--marca-600); margin-top: 2px; }
+.horario.elegido small { color: #dff3fb; }
+.horarios__lista { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }

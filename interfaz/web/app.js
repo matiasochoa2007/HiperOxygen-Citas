@@ -333,7 +333,7 @@ async function salir() {
    ========================================================================== */
 const MENUS = {
   paciente: [['inicio', 'Inicio', 'inicio'], ['agendar', 'Agendar cita', 'agendar'], ['citas', 'Mis citas', 'calendario'], ['servicios', 'Servicios', 'servicios']],
-  recepcionista: [['inicio', 'Panel del día', 'inicio'], ['agendar', 'Nueva cita', 'agendar'], ['citas', 'Agenda de citas', 'calendario'], ['pacientes', 'Pacientes', 'pacientes'], ['servicios', 'Servicios', 'servicios']],
+  recepcionista: [['inicio', 'Panel del día', 'inicio'], ['agendar', 'Nueva cita', 'agendar'], ['citas', 'Agenda de citas', 'calendario'], ['pacientes', 'Pacientes', 'pacientes'], ['servicios', 'Servicios', 'servicios'], ['configuracion', 'Configuración', 'ajuste']],
   especialista: [['inicio', 'Inicio', 'inicio'], ['citas', 'Mi agenda', 'calendario'], ['servicios', 'Servicios', 'servicios']],
 };
 
@@ -372,7 +372,7 @@ function cabecera(titulo, acciones = '', sobretitulo = fechaCompleta(E.hoy)) {
   $$('#cabecera [data-ir]').forEach((b) => b.onclick = () => irA(b.dataset.ir));
 }
 
-const VISTAS = { inicio: vistaInicio, agendar: vistaAgendar, citas: vistaCitas, pacientes: vistaPacientes, servicios: vistaServicios };
+const VISTAS = { inicio: vistaInicio, agendar: vistaAgendar, citas: vistaCitas, pacientes: vistaPacientes, servicios: vistaServicios, configuracion: vistaConfiguracion };
 
 function irA(vista) {
   E.vista = vista;
@@ -520,7 +520,7 @@ async function vistaAgendar() {
   if (!E.agendar) E.agendar = agendarNuevo();
   if (esRecepcion && !E.pacientes.length) E.pacientes = (await api('pacientes', '')).pacientes || [];
   renderAgendar();
-  if (E.agendar.especialista && !E.agendar.disponibilidad) cargarDisponibilidad();
+  if (E.agendar.servicio && E.agendar.especialista && !E.agendar.disponibilidad) cargarDisponibilidad();
 }
 
 function renderAgendar() {
@@ -544,15 +544,24 @@ function renderAgendar() {
             <button class="boton boton--chico" id="cambiar-paciente">Cambiar</button></div>`
           : `<div class="buscador" id="buscador"><div class="entrada-con-icono">${icono('buscar')}<input class="entrada" id="buscar-paciente" placeholder="Escriba para buscar…" autocomplete="off"></div><div class="buscador__lista" id="lista-pacientes"></div></div>`}
       </div>` : ''}
+      <div class="paso ${A.servicio ? 'listo' : ''}">
+        <div class="paso__titulo"><span class="paso__numero">${n + 1}</span><div><h3>Servicio</h3><p>¿Qué necesita? Las sesiones en cámara se agendan por lugares disponibles.</p></div></div>
+        <div class="opciones">${E.servicios.map((s) => `
+          <button class="opcion ${A.servicio === s.id_servicio ? 'elegida' : ''}" data-servicio="${s.id_servicio}">
+            <span class="servicio__icono" style="width:38px;height:38px;border-radius:11px">${icono(iconoServicio(s.nombre))}</span>
+            <span><strong>${esc(s.nombre)}</strong><small>${s.duracion_min} min · ${s.usa_camara ? 'En cámara' : 'Consulta'}</small></span>
+            <span class="opcion__precio ${s.precio == null ? 'opcion__precio--consulta' : ''}">${dinero(s.precio)}</span>
+          </button>`).join('')}</div>
+      </div>
       <div class="paso ${A.especialista ? 'listo' : ''}">
-        <div class="paso__titulo"><span class="paso__numero">${n + 1}</span><div><h3>Especialista</h3><p>Elija con quién desea su cita.</p></div></div>
+        <div class="paso__titulo"><span class="paso__numero">${n + 2}</span><div><h3>Especialista</h3><p>Elija con quién desea su cita.</p></div></div>
         <div class="opciones">${E.especialistas.map((d) => `
           <button class="opcion ${A.especialista === d.id ? 'elegida' : ''}" data-especialista="${d.id}">
             <span class="avatar">${esc(d.iniciales)}</span><span><strong>${esc(d.nombre)}</strong><small>${esc(d.especialidad)}</small></span>
           </button>`).join('')}</div>
       </div>
       <div class="paso ${A.fecha ? 'listo' : ''}">
-        <div class="paso__titulo"><span class="paso__numero">${n + 2}</span><div><h3>Fecha</h3><p>${A.fecha ? esc(fechaCompleta(A.fecha)) : 'Elija un día'}</p></div>
+        <div class="paso__titulo"><span class="paso__numero">${n + 3}</span><div><h3>Fecha</h3><p>${A.fecha ? esc(fechaCompleta(A.fecha)) : 'Elija un día'}</p></div>
           <input type="date" class="entrada" id="otra-fecha" style="width:170px;height:34px;margin-left:auto" min="${E.hoy}" value="${A.fecha || ''}" title="Elegir otra fecha"></div>
         <div class="dias">
           <button class="icono-boton" id="semana-anterior" ${A.semana === 0 ? 'disabled style="opacity:.4"' : ''} aria-label="Semana anterior">${icono('izquierda')}</button>
@@ -564,18 +573,9 @@ function renderAgendar() {
         </div>
       </div>
       <div class="paso ${A.hora ? 'listo' : ''}">
-        <div class="paso__titulo"><span class="paso__numero">${n + 3}</span><div><h3>Horario</h3><p>${especialista ? `Disponibilidad de ${esc(especialista.nombre)}` : 'Primero elija un especialista.'}</p></div></div>
+        <div class="paso__titulo"><span class="paso__numero">${n + 4}</span><div><h3>Horario</h3><p>${subtituloHorario(especialista)}</p></div></div>
         <div id="horarios">${renderHorarios()}</div>
-      </div>
-      <div class="paso ${A.servicio ? 'listo' : ''}">
-        <div class="paso__titulo"><span class="paso__numero">${n + 4}</span><div><h3>Servicio</h3><p>¿Qué tratamiento necesita?</p></div></div>
-        <div class="opciones">${E.servicios.map((s) => `
-          <button class="opcion ${A.servicio === s.id_servicio ? 'elegida' : ''}" data-servicio="${s.id_servicio}">
-            <span class="servicio__icono" style="width:38px;height:38px;border-radius:11px">${icono(iconoServicio(s.nombre))}</span>
-            <span><strong>${esc(s.nombre)}</strong><small>${s.duracion_min} min</small></span>
-            <span class="opcion__precio ${s.precio == null ? 'opcion__precio--consulta' : ''}">${dinero(s.precio)}</span>
-          </button>`).join('')}</div>
-        <label class="campo mt-16"><span class="campo__etiqueta">Motivo de la consulta <small>opcional</small></span>
+        <label class="campo mt-16"><span class="campo__etiqueta">Motivo de la cita <small>opcional</small></span>
           <textarea class="entrada" id="motivo" placeholder="Cuéntenos brevemente, por ejemplo: recuperación de una lesión de rodilla.">${esc(A.motivo)}</textarea></label>
       </div>
     </div>
@@ -584,10 +584,10 @@ function renderAgendar() {
       <div class="resumen__cabecera"><span>Resumen</span><h3>Su cita</h3></div>
       <ul class="resumen__lista">
         ${esRecepcion ? `<li>${icono('usuario')}<div><small>Paciente</small>${A.paciente ? `<strong>${esc(A.paciente.nombre)} ${esc(A.paciente.apellidos)}</strong>` : '<span class="pendiente">Sin elegir</span>'}</div></li>` : ''}
+        <li>${icono('servicios')}<div><small>Servicio</small>${servicio ? `<strong>${esc(servicio.nombre)}</strong>` : '<span class="pendiente">Sin elegir</span>'}</div></li>
         <li>${icono('estetoscopio')}<div><small>Especialista</small>${especialista ? `<strong>${esc(especialista.nombre)}</strong>` : '<span class="pendiente">Sin elegir</span>'}</div></li>
         <li>${icono('calendario')}<div><small>Fecha</small>${A.fecha ? `<strong>${esc(fechaLarga(A.fecha))}</strong>` : '<span class="pendiente">Sin elegir</span>'}</div></li>
         <li>${icono('reloj')}<div><small>Horario</small>${A.hora ? `<strong>${esc(A.hora)} h</strong>` : '<span class="pendiente">Sin elegir</span>'}</div></li>
-        <li>${icono('servicios')}<div><small>Servicio</small>${servicio ? `<strong>${esc(servicio.nombre)}</strong>` : '<span class="pendiente">Sin elegir</span>'}</div></li>
       </ul>
       <div class="resumen__total"><span>Costo estimado</span><strong>${servicio ? dinero(servicio.precio) : '—'}</strong></div>
       <div class="resumen__pie">
@@ -600,7 +600,7 @@ function renderAgendar() {
   // Eventos
   $$('[data-especialista]').forEach((b) => b.onclick = () => { A.especialista = Number(b.dataset.especialista); A.hora = null; cargarDisponibilidad(); });
   $$('[data-fecha]').forEach((b) => b.onclick = () => { A.fecha = b.dataset.fecha; A.hora = null; cargarDisponibilidad(); });
-  $$('[data-servicio]').forEach((b) => b.onclick = () => { A.servicio = Number(b.dataset.servicio); renderAgendar(); });
+  $$('[data-servicio]').forEach((b) => b.onclick = () => { A.servicio = Number(b.dataset.servicio); A.hora = null; cargarDisponibilidad(); });
   $('#otra-fecha').onchange = (e) => {
     if (!e.target.value) return;
     A.fecha = e.target.value; A.hora = null;
@@ -615,16 +615,30 @@ function renderAgendar() {
   if (esRecepcion) enlazarBuscadorPacientes();
 }
 
+function subtituloHorario(especialista) {
+  const A = E.agendar;
+  const d = A.disponibilidad;
+  if (!A.servicio || !especialista) return 'Primero elija el servicio y el especialista.';
+  if (d && d.exito && d.en_camara) return `Sesión en cámara · ${d.cupo} ${d.cupo === 1 ? 'lugar' : 'lugares'} por horario`;
+  return `Agenda de ${esc(especialista.nombre)}`;
+}
+
+function etiquetaLugares(disp, hora, libre) {
+  if (!disp.en_camara || !libre || disp.cupo <= 1) return '';
+  const n = disp.lugares[hora];
+  return `<small>${n} ${n === 1 ? 'lugar' : 'lugares'}</small>`;
+}
+
 function renderHorarios() {
   const A = E.agendar;
-  if (!A.especialista || !A.fecha) return `<div class="campo__ayuda">Elija un especialista y una fecha para ver los horarios.</div>`;
+  if (!A.servicio || !A.especialista || !A.fecha) return `<div class="campo__ayuda">Elija el servicio, el especialista y la fecha para ver los horarios.</div>`;
   if (A.cargando || !A.disponibilidad) return '<div class="cargando-bloque" style="padding:24px"></div>';
   const disp = A.disponibilidad;
   if (!disp.exito) return `<div class="mensaje-en-linea visible">${icono('error')}<span>${esc(disp.mensaje.replace(/^Error:\s*/, ''))}</span></div>`;
   const libres = new Set(disp.libres);
   const grupo = (titulo, ic, horas) => horas.length ? `<div class="horarios__grupo">
       <div class="horarios__etiqueta">${icono(ic)}${titulo}</div>
-      <div class="horarios__lista">${horas.map((h) => `<button class="horario ${A.hora === h ? 'elegido' : ''}" data-hora="${h}" ${libres.has(h) ? '' : 'disabled title="No disponible"'}>${h}</button>`).join('')}</div>
+      <div class="horarios__lista">${horas.map((h) => `<button class="horario ${A.hora === h ? 'elegido' : ''}" data-hora="${h}" ${libres.has(h) ? '' : 'disabled title="No disponible"'}><span>${h}</span>${etiquetaLugares(disp, h, libres.has(h))}</button>`).join('')}</div>
     </div>` : '';
   return `${!disp.libres.length ? `<div class="mensaje-en-linea visible" style="background:var(--aviso-suave);color:var(--aviso);border-color:#f6e2c2;margin-bottom:14px">${icono('info')}<span>${esc((disp.mensaje || '').replace(/^Aviso:\s*/, ''))}</span></div>` : ''}
     ${grupo('Mañana', 'sol', E.horarios.filter((h) => h < '13:00'))}
@@ -640,10 +654,10 @@ async function cargarDisponibilidad() {
   const A = E.agendar;
   A.cargando = true; A.disponibilidad = null;
   renderAgendar();
-  if (!A.especialista || !A.fecha) { A.cargando = false; return; }
-  const consulta = `${A.especialista}|${A.fecha}`;
+  if (!A.servicio || !A.especialista || !A.fecha) { A.cargando = false; A.disponibilidad = null; renderAgendar(); return; }
+  const consulta = `${A.servicio}|${A.especialista}|${A.fecha}`;
   A.consulta = consulta;
-  const r = await api('disponibilidad', A.especialista, A.fecha);
+  const r = await api('disponibilidad', A.especialista, A.fecha, null, A.servicio);
   if (E.agendar !== A || A.consulta !== consulta) return;
   A.cargando = false; A.disponibilidad = r;
   if (E.vista === 'agendar') renderAgendar();
@@ -838,7 +852,7 @@ async function citasEspecialista() {
 /* --- Modificar, cancelar y eliminar ------------------------------------------------------ */
 async function modalModificar(cita, alTerminar) {
   const esRecepcion = E.sesion.rol === 'recepcionista';
-  const estado = { especialista: cita.id_odontologo, fecha: cita.fecha, hora: cita.hora };
+  const estado = { especialista: cita.id_odontologo, fecha: cita.fecha, hora: cita.hora, servicio: cita.id_servicio };
   abrirModal(`
     <div class="modal__cabecera">
       <div class="modal__icono">${icono('editar')}</div>
@@ -852,7 +866,7 @@ async function modalModificar(cita, alTerminar) {
         <label class="campo"><span class="campo__etiqueta">Fecha</span><input type="date" class="entrada" id="m-fecha" min="${E.hoy}" value="${cita.fecha}"></label>
       </div>
       <div class="campo"><span class="campo__etiqueta">Horario</span><div id="m-horarios"><div class="cargando-bloque" style="padding:16px"></div></div></div>
-      <label class="campo"><span class="campo__etiqueta">Servicio</span><select class="entrada" id="m-servicio">${E.servicios.map((s) => `<option value="${s.id_servicio}" ${s.id_servicio === cita.id_servicio ? 'selected' : ''}>${esc(s.nombre)} · ${s.duracion_min} min</option>`).join('')}</select></label>
+      <label class="campo"><span class="campo__etiqueta">Servicio</span><select class="entrada" id="m-servicio">${E.servicios.some((s) => s.id_servicio === cita.id_servicio) ? '' : `<option value="${cita.id_servicio}" selected>${esc(cita.servicio)} (inactivo)</option>`}${E.servicios.map((s) => `<option value="${s.id_servicio}" ${s.id_servicio === cita.id_servicio ? 'selected' : ''}>${esc(s.nombre)} · ${s.duracion_min} min</option>`).join('')}</select></label>
       <label class="campo"><span class="campo__etiqueta">Motivo <small>opcional</small></span><input class="entrada" id="m-motivo" value="${esc(cita.motivo || '')}"></label>
       <div class="mensaje-en-linea" id="m-error">${icono('error')}<span></span></div>
     </div>
@@ -862,7 +876,7 @@ async function modalModificar(cita, alTerminar) {
   const pintarHorarios = async () => {
     const caja = $('#m-horarios');
     caja.innerHTML = '<div class="cargando-bloque" style="padding:16px"></div>';
-    const r = await api('disponibilidad', estado.especialista, estado.fecha, cita.id_cita);
+    const r = await api('disponibilidad', estado.especialista, estado.fecha, cita.id_cita, estado.servicio);
     if (!$('#m-horarios')) return;
     if (!r.exito) { caja.innerHTML = `<div class="campo__ayuda" style="color:var(--error)">${esc(r.mensaje.replace(/^Error:\s*/, ''))}</div>`; return; }
     const libres = new Set(r.libres);
@@ -872,6 +886,7 @@ async function modalModificar(cita, alTerminar) {
   };
   if (esRecepcion) $('#m-especialista').onchange = (e) => { estado.especialista = Number(e.target.value); pintarHorarios(); };
   $('#m-fecha').onchange = (e) => { estado.fecha = e.target.value; pintarHorarios(); };
+  $('#m-servicio').onchange = (e) => { estado.servicio = Number(e.target.value); pintarHorarios(); };
   pintarHorarios();
 
   $('#m-guardar').onclick = async (e) => {
@@ -1072,6 +1087,226 @@ async function vistaServicios() {
       </article>`).join('')}</div>`
     : `<div class="tarjeta">${vacio('servicios', 'Catálogo vacío', esc((r.mensaje || '').replace(/^(Aviso|Error):\s*/, '')))}</div>`;
   $$('#contenido .insignia svg').forEach((s) => { s.style.width = '13px'; s.style.height = '13px'; });
+}
+
+/* ==========================================================================
+   Configuración de la clínica (recepción): cámaras, especialistas y servicios
+   ========================================================================== */
+const PESTANAS_CONFIG = [['camaras', 'Cámaras'], ['especialistas', 'Especialistas'], ['servicios', 'Servicios']];
+let pestanaConfig = 'camaras';
+
+async function refrescarCatalogos() {
+  const [d, s] = await Promise.all([api('especialistas'), api('servicios')]);
+  E.especialistas = d.especialistas || [];
+  E.servicios = s.servicios || [];
+  if (E.agendar) E.agendar.disponibilidad = null;
+}
+
+const insigniaEstado = (activo) => activo
+  ? '<span class="insignia insignia--Programada">Activo</span>'
+  : '<span class="insignia insignia--Cancelada">Inactivo</span>';
+
+async function vistaConfiguracion() {
+  cabecera('Configuración', '', 'Recepción · Datos de la clínica');
+  const contenido = $('#contenido');
+  contenido.innerHTML = '<div class="cargando-bloque"></div>';
+  const r = await api('configuracion');
+  if (!r.exito) { avisar(r.mensaje); contenido.innerHTML = ''; return; }
+  const activos = (lista, campo = 'activo') => lista.filter((x) => x[campo]).length;
+  const cuenta = { camaras: r.camaras.length, especialistas: r.especialistas.length, servicios: r.servicios.length };
+  contenido.innerHTML = `
+    <div class="rejilla rejilla--3">
+      ${indicador(r.cupo, r.cupo === 1 ? 'Lugar por horario en cámara' : 'Lugares por horario en cámara', 'servicios')}
+      ${indicador(activos(r.especialistas), 'Especialistas activos', 'estetoscopio', 'indicador__icono--oro')}
+      ${indicador(activos(r.servicios), 'Servicios activos', 'expediente', 'indicador__icono--info')}
+    </div>
+    ${r.cupo === 0 ? `<div class="mensaje-en-linea visible mt-16" style="background:var(--aviso-suave);color:var(--aviso);border-color:#f6e2c2">${icono('alerta')}<span>No hay cámaras activas: los pacientes no podrán agendar sesiones en cámara hasta que active o agregue una.</span></div>` : ''}
+    <div class="fila entre mt-24" style="margin-bottom:16px">
+      <div class="pestanas">${PESTANAS_CONFIG.map(([id, texto]) => `<button data-pconfig="${id}" class="${pestanaConfig === id ? 'activo' : ''}">${texto} <b>${cuenta[id]}</b></button>`).join('')}</div>
+    </div>
+    <div class="tarjeta" id="panel-config"></div>`;
+  $$('[data-pconfig]').forEach((b) => b.onclick = () => { pestanaConfig = b.dataset.pconfig; vistaConfiguracion(); });
+  ({ camaras: panelCamaras, especialistas: panelEspecialistas, servicios: panelServicios })[pestanaConfig](r, $('#panel-config'));
+}
+
+function cabeceraPanel(titulo, texto, boton) {
+  return `<div class="tarjeta__cabecera"><div><h3>${titulo}</h3><p>${texto}</p></div>
+    <button class="boton boton--primario boton--chico" id="config-agregar">${icono('mas')}${boton}</button></div>`;
+}
+
+function botonEstado(activo, atributo, id) {
+  return `<button class="boton boton--chico ${activo ? 'boton--fantasma' : 'boton--suave'}" ${atributo}="${id}" data-activo="${activo ? 0 : 1}">${activo ? 'Desactivar' : 'Activar'}</button>`;
+}
+
+async function cambiarEstado(metodo, id, activar, nombre, aviso) {
+  if (!activar && !(await confirmar({ titulo: `¿Desactivar ${nombre}?`, texto: aviso, boton: 'Desactivar', iconoNombre: 'alerta' }))) return;
+  const r = await api(metodo, id, activar);
+  avisar(r.mensaje);
+  if (r.exito) { await refrescarCatalogos(); vistaConfiguracion(); }
+}
+
+function panelCamaras(r, caja) {
+  caja.innerHTML = cabeceraPanel('Cámaras hiperbáricas', 'El cupo de cada horario es la suma de los lugares de las cámaras activas.', 'Agregar cámara') + (r.camaras.length ? `
+    <table class="tabla">
+      <thead><tr><th>Cámara</th><th>Lugares por sesión</th><th>Estado</th><th style="text-align:right">Acciones</th></tr></thead>
+      <tbody>${r.camaras.map((c) => `<tr class="${c.activa ? '' : 'cancelada'}">
+        <td><div class="persona"><span class="servicio__icono" style="width:34px;height:34px;border-radius:10px">${icono('servicios')}</span><strong>${esc(c.nombre)}</strong></div></td>
+        <td>${c.capacidad} ${c.capacidad === 1 ? 'paciente' : 'pacientes'}</td>
+        <td>${insigniaEstado(c.activa)}</td>
+        <td><div class="acciones"><button class="icono-boton" title="Editar" data-editar-camara="${c.id_camara}">${icono('editar')}</button>${botonEstado(c.activa, 'data-estado-camara', c.id_camara)}</div></td>
+      </tr>`).join('')}</tbody></table>`
+    : vacio('servicios', 'Sin cámaras', 'Agregue la cámara hiperbárica de la clínica para poder agendar sesiones.'));
+  const formulario = (c = {}) => modalFormulario({
+    titulo: c.id_camara ? 'Editar cámara' : 'Agregar cámara', icono: 'servicios',
+    subtitulo: 'Una cámara monoplaza tiene 1 lugar; una multiplaza, varios.',
+    campos: [
+      { name: 'nombre', label: 'Nombre', value: c.nombre, placeholder: 'p. ej. Cámara monoplaza 1' },
+      { name: 'capacidad', label: 'Lugares por sesión', type: 'number', value: c.capacidad ?? 1, min: 1, max: 20 },
+    ],
+    boton: 'Guardar cámara',
+    alGuardar: (datos) => api('guardar_camara', datos, c.id_camara ?? null),
+  });
+  $('#config-agregar').onclick = () => formulario();
+  $$('[data-editar-camara]', caja).forEach((b) => b.onclick = () => formulario(r.camaras.find((c) => c.id_camara == b.dataset.editarCamara)));
+  $$('[data-estado-camara]', caja).forEach((b) => b.onclick = () => {
+    const c = r.camaras.find((x) => x.id_camara == b.dataset.estadoCamara);
+    cambiarEstado('estado_camara', c.id_camara, b.dataset.activo === '1', esc(c.nombre), 'Sus lugares dejarán de contar en el cupo. Las sesiones ya agendadas se conservan.');
+  });
+}
+
+function panelEspecialistas(r, caja) {
+  caja.innerHTML = cabeceraPanel('Especialistas', 'Quienes atienden consultas y supervisan las sesiones. Cada uno puede tener su acceso para ver su agenda.', 'Agregar especialista') + (r.especialistas.length ? `
+    <table class="tabla">
+      <thead><tr><th>Especialista</th><th>Acceso al sistema</th><th>Estado</th><th style="text-align:right">Acciones</th></tr></thead>
+      <tbody>${r.especialistas.map((e) => `<tr class="${e.activo ? '' : 'cancelada'}">
+        <td><div class="persona"><span class="avatar avatar--chico">${esc(e.iniciales)}</span><div><strong>${esc(e.nombre)} ${esc(e.apellidos)}</strong><small>${esc(e.especialidad || 'Sin especialidad')}</small></div></div></td>
+        <td>${e.nombre_usuario ? `<span class="insignia insignia--Programada">${esc(e.nombre_usuario)}</span>` : '<span class="insignia insignia--Reprogramada">Sin acceso</span>'}</td>
+        <td>${insigniaEstado(e.activo)}</td>
+        <td><div class="acciones">
+          <button class="icono-boton" title="Editar" data-editar-esp="${e.id_odontologo}">${icono('editar')}</button>
+          <button class="icono-boton" title="${e.nombre_usuario ? 'Restablecer contraseña' : 'Crear acceso'}" data-acceso-esp="${e.id_odontologo}">${icono('llave')}</button>
+          ${botonEstado(e.activo, 'data-estado-esp', e.id_odontologo)}</div></td>
+      </tr>`).join('')}</tbody></table>`
+    : vacio('estetoscopio', 'Sin especialistas', 'Agregue a los especialistas de la clínica.'));
+  const formulario = (e = {}) => modalFormulario({
+    titulo: e.id_odontologo ? 'Editar especialista' : 'Agregar especialista', icono: 'estetoscopio',
+    subtitulo: 'Aparecerá en el paso “Especialista” al agendar.',
+    campos: [
+      { name: 'nombre', label: 'Nombre(s)', value: e.nombre, mitad: true },
+      { name: 'apellidos', label: 'Apellidos', value: e.apellidos, mitad: true },
+      { name: 'especialidad', label: 'Especialidad', value: e.especialidad, opcional: true, placeholder: 'p. ej. Medicina hiperbárica' },
+    ],
+    boton: 'Guardar especialista',
+    alGuardar: (datos) => api('guardar_especialista', datos, e.id_odontologo ?? null),
+  });
+  $('#config-agregar').onclick = () => formulario();
+  $$('[data-editar-esp]', caja).forEach((b) => b.onclick = () => formulario(r.especialistas.find((e) => e.id_odontologo == b.dataset.editarEsp)));
+  $$('[data-acceso-esp]', caja).forEach((b) => b.onclick = () => {
+    const e = r.especialistas.find((x) => x.id_odontologo == b.dataset.accesoEsp);
+    const tiene = !!e.nombre_usuario;
+    modalFormulario({
+      titulo: tiene ? 'Restablecer contraseña' : 'Crear acceso', icono: 'llave',
+      subtitulo: `${e.nombre} ${e.apellidos}`,
+      campos: [
+        { name: 'usuario', label: 'Usuario', value: e.nombre_usuario || `${e.nombre}.${e.apellidos.split(' ')[0]}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9._-]/g, ''), deshabilitado: tiene },
+        { name: 'contrasena', label: tiene ? 'Nueva contraseña' : 'Contraseña', value: claveSugerida(), ayuda: 'Entréguela al especialista; podrá usarla de inmediato.' },
+      ],
+      boton: tiene ? 'Restablecer' : 'Crear acceso',
+      alGuardar: async (datos) => {
+        const res = await api('acceso_especialista', e.id_odontologo, datos.usuario || '', datos.contrasena);
+        if (res.exito) res.mensaje += ` Contraseña: ${datos.contrasena}`;
+        return res;
+      },
+    });
+  });
+  $$('[data-estado-esp]', caja).forEach((b) => b.onclick = () => {
+    const e = r.especialistas.find((x) => x.id_odontologo == b.dataset.estadoEsp);
+    cambiarEstado('estado_especialista', e.id_odontologo, b.dataset.activo === '1', `a ${esc(e.nombre)} ${esc(e.apellidos)}`, 'Ya no aparecerá al agendar. Sus citas se conservan; si tiene citas próximas, el sistema le avisará para reasignarlas.');
+  });
+}
+
+function panelServicios(r, caja) {
+  caja.innerHTML = cabeceraPanel('Servicios', 'Las sesiones “en cámara” usan el cupo de las cámaras; las consultas, la agenda del especialista.', 'Agregar servicio') + (r.servicios.length ? `
+    <table class="tabla">
+      <thead><tr><th>Servicio</th><th>Tipo</th><th>Duración</th><th>Precio</th><th>Estado</th><th style="text-align:right">Acciones</th></tr></thead>
+      <tbody>${r.servicios.map((s) => `<tr class="${s.activo ? '' : 'cancelada'}">
+        <td><div class="persona"><span class="servicio__icono" style="width:34px;height:34px;border-radius:10px">${icono(iconoServicio(s.nombre))}</span><div><strong>${esc(s.nombre)}</strong><small>${esc(s.descripcion || 'Sin descripción')}</small></div></div></td>
+        <td>${s.usa_camara ? '<span class="insignia insignia--Atendida">En cámara</span>' : '<span class="insignia insignia--neutra">Consulta</span>'}</td>
+        <td>${s.duracion_min} min</td>
+        <td>${dinero(s.precio)}</td>
+        <td>${insigniaEstado(s.activo)}</td>
+        <td><div class="acciones"><button class="icono-boton" title="Editar" data-editar-serv="${s.id_servicio}">${icono('editar')}</button>${botonEstado(s.activo, 'data-estado-serv', s.id_servicio)}</div></td>
+      </tr>`).join('')}</tbody></table>`
+    : vacio('expediente', 'Sin servicios', 'Agregue los servicios que ofrece la clínica.'));
+  const formulario = (s = {}) => modalFormulario({
+    titulo: s.id_servicio ? 'Editar servicio' : 'Agregar servicio', icono: 'expediente',
+    subtitulo: 'Deje el precio vacío para mostrar “A consultar”.',
+    campos: [
+      { name: 'nombre', label: 'Nombre', value: s.nombre, placeholder: 'p. ej. Sesión de oxigenoterapia hiperbárica' },
+      { name: 'duracion', label: 'Duración (minutos)', type: 'number', value: s.duracion_min ?? 60, min: 5, max: 480, mitad: true },
+      { name: 'precio', label: 'Precio (MXN)', value: s.precio ?? '', opcional: true, placeholder: 'p. ej. 1200', mitad: true },
+      { name: 'descripcion', label: 'Descripción', value: s.descripcion, opcional: true },
+      { name: 'usa_camara', label: 'Se realiza dentro de la cámara hiperbárica', type: 'interruptor', value: !!s.usa_camara },
+    ],
+    boton: 'Guardar servicio',
+    alGuardar: (datos) => api('guardar_servicio', datos, s.id_servicio ?? null),
+  });
+  $('#config-agregar').onclick = () => formulario();
+  $$('[data-editar-serv]', caja).forEach((b) => b.onclick = () => formulario(r.servicios.find((s) => s.id_servicio == b.dataset.editarServ)));
+  $$('[data-estado-serv]', caja).forEach((b) => b.onclick = () => {
+    const s = r.servicios.find((x) => x.id_servicio == b.dataset.estadoServ);
+    cambiarEstado('estado_servicio', s.id_servicio, b.dataset.activo === '1', esc(s.nombre), 'Dejará de aparecer en el catálogo y al agendar. Las citas que ya lo tienen se conservan.');
+  });
+}
+
+/* Formulario genérico en ventana modal: campos de texto, número e interruptor. */
+function modalFormulario({ titulo, subtitulo = '', icono: ic = 'editar', campos, boton, alGuardar }) {
+  const campoHtml = (c) => {
+    if (c.type === 'interruptor') {
+      return `<label class="interruptor" style="height:auto"><input type="checkbox" name="${c.name}" ${c.value ? 'checked' : ''}><i></i>${esc(c.label)}</label>`;
+    }
+    return `<label class="campo"><span class="campo__etiqueta">${esc(c.label)}${c.opcional ? ' <small>opcional</small>' : ''}</span>
+      <input class="entrada" name="${c.name}" type="${c.type || 'text'}" value="${esc(c.value ?? '')}" placeholder="${esc(c.placeholder || '')}"
+        ${c.min != null ? `min="${c.min}"` : ''} ${c.max != null ? `max="${c.max}"` : ''} ${c.deshabilitado ? 'disabled style="background:var(--superficie-2)"' : ''}>
+      ${c.ayuda ? `<span class="campo__ayuda">${esc(c.ayuda)}</span>` : ''}</label>`;
+  };
+  let cuerpo = '';
+  for (let i = 0; i < campos.length; i++) {
+    if (campos[i].mitad && campos[i + 1]?.mitad) { cuerpo += `<div class="fila-campos">${campoHtml(campos[i])}${campoHtml(campos[i + 1])}</div>`; i++; }
+    else cuerpo += campoHtml(campos[i]);
+  }
+  abrirModal(`
+    <div class="modal__cabecera">
+      <div class="modal__icono">${icono(ic)}</div>
+      <div><h3>${esc(titulo)}</h3><p>${esc(subtitulo)}</p></div>
+      <button class="icono-boton" data-cerrar aria-label="Cerrar">${icono('cerrar')}</button>
+    </div>
+    <form class="modal__cuerpo" id="form-generico" novalidate>${cuerpo}
+      <div class="mensaje-en-linea" id="g-error">${icono('error')}<span></span></div>
+    </form>
+    <div class="modal__pie"><button class="boton" data-cerrar>Cancelar</button><button class="boton boton--primario" id="g-guardar">${icono('check')}${esc(boton)}</button></div>`, { ancho: true });
+  $$('[data-cerrar]').forEach((b) => b.onclick = cerrarModal);
+  const formulario = $('#form-generico');
+  const guardar = async (b) => {
+    const datos = {};
+    campos.forEach((c) => {
+      const el = formulario.elements[c.name];
+      datos[c.name] = c.type === 'interruptor' ? el.checked : el.value;
+    });
+    const r = await conCarga(b, () => alGuardar(datos));
+    if (!r.exito) {
+      const caja = $('#g-error');
+      caja.classList.remove('visible'); void caja.offsetWidth;
+      caja.querySelector('span').textContent = r.mensaje.replace(/^Error:\s*/, '');
+      caja.classList.add('visible');
+      return;
+    }
+    cerrarModal(); avisar(r.mensaje);
+    await refrescarCatalogos();
+    vistaConfiguracion();
+  };
+  formulario.onsubmit = (e) => { e.preventDefault(); guardar($('#g-guardar')); };
+  $('#g-guardar').onclick = (e) => guardar(e.currentTarget);
 }
 
 /* ==========================================================================
